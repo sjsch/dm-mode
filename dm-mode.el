@@ -2,10 +2,12 @@
 
 ;; Author: Sam Schweigel <s.schweigel@gmail.com>
 ;; Version: 0.1
-;; Package-Requires: ((emacs "25.1") (lsp-mode "3.4"))
+;; Package-Requires: ((emacs "25.1") (lsp-mode "3.4") (lsp-ui "6.0") (ivy "0.10"))
 ;; Keywords: byond
 
 (require 'lsp-mode)
+(require 'lsp-ui)
+(require 'ivy)
 
 (defvar dm-mode-syntax-table
   (let ((st (make-syntax-table)))
@@ -23,13 +25,13 @@
           "for" "goto" "if" "return" "switch" "while"
           "del" "new")
          symbol-end)
-    (,(rx word-start
+    (,(rx symbol-start
           (or
            "proc" "verb" "datum" "atom" "movable" "obj"
            "mob" "turf" "area" "savefile" "list" "client"
            "sound" "image" "database" "matrix" "regex" "exception"
            "as" "const" "global" "set" "static" "tmp")
-          word-end)
+          symbol-end)
      . font-lock-type-face)
     (,(rx symbol-start
           (or
@@ -69,12 +71,26 @@
   (let ((m (make-sparse-keymap)))
     (define-key m (kbd "<backtab>") #'dm-dedent-line-function)
     (define-key m (kbd "<tab>") #'dm-indent-line-function)
+    (define-key m (kbd "C-c C-c") #'dm-compile)
     m))
 
 (lsp-register-client
  (make-lsp-client :new-connection (lsp-stdio-connection "dm-langserver")
                   :major-modes '(dm-mode)
                   :server-id 'dm-langserver))
+
+(defvar dm-compile-command
+  "DreamMaker")
+
+(defun dm-compile ()
+  (interactive)
+  (let* ((default-directory (lsp-workspace-root))
+         (dmes (directory-files default-directory nil ".*\\.dme"))
+         (num-found (length dmes)))
+    (cond
+     ((= 1 (length dmes)) (compile (concat dm-compile-command " " (car dmes))))
+     ((> 1 (length dmes)) (error "Too many DMEs."))
+     (t (error "No DME found.")))))
 
 ;;;###autoload
 (add-to-list 'auto-mode-alist '("\\.dm\\'" . dm-mode))
@@ -96,7 +112,6 @@
   (set (make-local-variable 'parse-sexp-lookup-properties) t)
   (set (make-local-variable 'parse-sexp-ignore-comments) t)
 
-  ;; (set (make-local-variable 'indent-line-function) #'dm-indent-line-function)
   (set (make-local-variable 'electric-indent-inhibit) t)
   (set (make-local-variable 'electric-indent-chars)
        (cons ?: electric-indent-chars))
@@ -104,8 +119,14 @@
   (set (make-local-variable 'font-lock-defaults)
        '(dm-mode-font-lock-keywords))
 
+  (set (make-local-variable 'show-trailing-whitespace) nil)
+
   (use-local-map dm-mode-map)
   (company-mode 1)
+  (lsp-ui-mode 1)
+  (flycheck-mode 1)
   (lsp))
+
+(provide 'dm-mode)
 
 ;;; dm-mode.el ends here
