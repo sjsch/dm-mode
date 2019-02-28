@@ -2,7 +2,7 @@
 
 ;; Author: Sam Schweigel <s.schweigel@gmail.com>
 ;; Version: 0.1
-;; Package-Requires: ((emacs "25.1") (lsp-mode "3.4") (lsp-ui "6.0") (ivy "0.10"))
+;; Package-Requires: ((emacs "25.1") (lsp-mode "3.4") (lsp-ui "6.0"))
 ;; Keywords: byond
 
 (require 'lsp-mode)
@@ -25,6 +25,10 @@
           "for" "goto" "if" "return" "switch" "while"
           "del" "new")
          symbol-end)
+    (,(rx line-start
+          "#" (0+ nonl)
+          line-end)
+     . font-lock-preprocessor-face)
     (,(rx symbol-start
           (or
            "proc" "verb" "datum" "atom" "movable" "obj"
@@ -46,11 +50,7 @@
     (,(rx symbol-start
           (group (1+ (or word ?_))) (0+ space)
           "=")
-     (1 font-lock-variable-name-face))
-    (,(rx line-start
-          "#" (0+ nonl)
-          line-end)
-     . font-lock-preprocessor-face)))
+     (1 font-lock-variable-name-face))))
 
 (defun dm-indent-line-function ()
   (interactive)
