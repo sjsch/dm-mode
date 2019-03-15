@@ -2,7 +2,7 @@
 
 ;; Author: Sam Schweigel <s.schweigel@gmail.com>
 ;; Version: 0.1
-;; Package-Requires: ((emacs "25.1") (lsp-mode "3.4") (lsp-ui "6.0"))
+;; Package-Requires: ((emacs "25.1") (lsp-mode "3.4") (lsp-ui "6.0") (xml-parse "1.5"))
 ;; Keywords: byond
 
 (require 'lsp-mode)
@@ -72,6 +72,8 @@
     (define-key m (kbd "<backtab>") #'dm-dedent-line-function)
     (define-key m (kbd "<tab>") #'dm-indent-line-function)
     (define-key m (kbd "C-c C-c") #'dm-compile)
+    (define-key m (kbd "C-c C-t") #'dm-tree)
+    (define-key m (kbd "C-c C-r") #'dm-force-reparse-tags)
     m))
 
 (lsp-register-client
@@ -82,15 +84,115 @@
 (defvar dm-compile-command
   "DreamMaker")
 
-(defun dm-compile ()
-  (interactive)
-  (let* ((default-directory (lsp-workspace-root))
+(defun dm-get-dme ()
+  (let* ((default-directory (or (lsp-workspace-root) default-directory))
          (dmes (directory-files default-directory nil ".*\\.dme"))
          (num-found (length dmes)))
     (cond
-     ((= 1 (length dmes)) (compile (concat dm-compile-command " " (car dmes))))
+     ((= 1 (length dmes)) (car dmes))
      ((> 1 (length dmes)) (error "Too many DMEs."))
      (t (error "No DME found.")))))
+
+(defun dm-compile ()
+  (interactive)
+  (let ((default-directory (or (lsp-workspace-root) default-directory)))
+    (compile (concat dm-compile-command " " (dm-get-dme)))))
+
+(defun dm-generate-tags ()
+  (interactive)
+  (let ((default-directory (or (lsp-workspace-root) default-directory))
+        (dme (dm-get-dme)))
+    (start-process "dm-tags" "*dm-tags*" dm-compile-command
+                   "-o" dme)))
+
+(defvar dm-tags nil)
+
+(defun dm-force-reparse-tags ()
+  (interactive)
+  (setq dm-tags nil)
+  (dm-get-tags))
+
+(defun dm-get-tags ()
+  (or
+   dm-tags
+   (let ((default-directory (or (lsp-workspace-root) default-directory)))
+     (if (file-exists-p "dm-tags.xml")
+         (let ((progress (make-progress-reporter "Parsing tags" 0 100)))
+           (with-temp-buffer
+             (insert-file-contents "dm-tags.xml")
+             (setq dm-tags (read-xml (lambda (p) (progress-reporter-update progress p))))
+             (progress-reporter-done progress))
+           dm-tags)
+       (error "Couldn't find DM tags (dm-tags.xml).")))))
+
+(defun dm-goto-file-line (f)
+  (string-match
+   (rx (group (1+ (not (any ?:))))
+      (char ?:)
+      (group (1+ digit)))
+   f)
+  (let ((line (match-string 2 f))
+        (buf (find-file-other-window (match-string 1 f))))
+    (when line
+      (goto-line (string-to-number line) buf))))
+
+(defun dm-goto-link (x)
+  `(link :tag ,(propertize "g" 'face 'link)
+         :value ,(cdadar x)
+         :notify ,(lambda (w &rest ignore)
+                    (dm-goto-file-line (widget-value w)))))
+
+
+(defun dm-face-category (c)
+  (propertize
+   c
+   'face
+   (cdr (assoc c '(("var" . font-lock-variable-name-face)
+                   ("object" . font-lock-type-face)
+                   ("proc" . font-lock-function-name-face)
+                   ("area" . font-lock-constant-face)
+                   ("obj" . font-lock-builtin-face)
+                   ("turf" . font-lock-string-face)
+                   ("mob" . font-lock-preprocessor-face)
+                   ("verb" . font-lock-doc-face))))))
+
+(defun dm-tree-widget (tree)
+  (let ((categories (seq-filter
+                     (lambda (x) (not (equal x "val")))
+                     (delete-dups (mapcar #'caar tree)))))
+    (mapcar (lambda (c)
+              `(tree-widget
+                :tag ,(dm-face-category c)
+                ,@(mapcar
+                   (lambda (x)
+                     (if (and (cddr x)
+                              (seq-filter (lambda (x) (not (equal (caar x) "val"))) (cddr x)))
+                         `(tree-widget
+                           :node (group ,(dm-goto-link x)
+                                        (item ,(concat " " (string-trim (cadr x)))))
+                           ,@(dm-tree-widget (cddr x)))
+                       `(group
+                         ,(dm-goto-link x)
+                         (item ,(concat " " (string-trim (cadr x)))))))
+                  (seq-filter (lambda (x) (equal (caar x) c))
+                              tree))))
+            categories)))
+
+(defun dm-tree ()
+  "Browse the DM object tree."
+  (interactive)
+  (unless dm-tags
+    (dm-get-tags))
+  (let ((default-directory (or (lsp-workspace-root) default-directory)))
+    (switch-to-buffer "*dm-tree*")
+    (let ((inhibit-read-only t))
+      (erase-buffer))
+    (remove-overlays)
+    (mapcar (lambda (x)
+              (apply #'widget-create x))
+            (dm-tree-widget (cdr dm-tags)))
+    (use-local-map widget-keymap)
+    (widget-setup)))
 
 ;;;###autoload
 (add-to-list 'auto-mode-alist '("\\.dm\\'" . dm-mode))
