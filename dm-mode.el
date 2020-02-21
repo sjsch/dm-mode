@@ -23,7 +23,7 @@
          (or
           "sleep" "spawn" "break" "continue" "do" "else"
           "for" "goto" "if" "return" "switch" "while"
-          "del" "new")
+          "del" "new" "in")
          symbol-end)
     (,(rx line-start
           "#" (0+ nonl)
@@ -73,6 +73,8 @@
     (define-key m (kbd "<tab>") #'dm-indent-line-function)
     (define-key m (kbd "C-c C-c") #'dm-compile)
     m))
+
+(add-to-list 'lsp-language-id-configuration '(dm-mode . "dm"))
 
 (lsp-register-client
  (make-lsp-client :new-connection (lsp-stdio-connection "dm-langserver")
